@@ -56,7 +56,7 @@ npm run dev
 
 ## Login
 
-To use this app, sign in with your Puter account:
+To use this app, sign in with your **[Puter account](https://puter.com)** :
 
 - Click the login button on the main page
 - Complete the Puter authentication flow
