@@ -30,7 +30,7 @@ Pagpug AI Dashboard is a custom AI workspace built on top of the Puter SDK and l
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/Ade-Yohanes/PagpugChat.git
+git clone https://github.com/DheyohDev/PagpugChat.git
 cd PagpugChat
 ```
 
@@ -56,7 +56,7 @@ npm run dev
 
 ## Login
 
-To use this app, sign in with your **[Puter account](https://puter.com)** :
+To use this app, sign in with your **[Puter Account](https://puter.com)** :
 
 - Click the login button on the main page
 - Complete the Puter authentication flow
