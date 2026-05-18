@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pagpug AI Dashboard
 
-## Getting Started
+A Next.js application that integrates Puter.ai features for chat, smart search, document analysis, media generation, and user profile management.
 
-First, run the development server:
+## About
+
+Pagpug AI Dashboard is a custom AI workspace built on top of the Puter SDK and local utilities. This app enables users to:
+
+- Chat with selected AI models
+- Use smart search combining web search and LLM synthesis
+- Upload documents for local analysis (RAG)
+- Generate text-to-image and text-to-video content
+- View Puter account profile and usage
+- Manage default model selection in settings
+
+> Note: each user must log in with their own Puter account to access authenticated features.
+
+## Key Features
+
+- `AI Chat` with dynamic models and stop/cancel controls
+- `Model selector` with search and keyboard support
+- `Smart search` to fetch and synthesize web data
+- `Document RAG` for answering questions from uploaded files
+- `Text-to-Image` and `Text-to-Video` using Puter multimodal features
+- `Puter Profile` to view account details and usage stats
+- `Settings` to save the default model
+
+## Installation
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/username/repo-name.git
+cd repo-name
+```
+
+2. Install dependencies:
+
+```bash
+npm install
+```
+
+3. Configure `.env` as needed. If you use a SearXNG search engine, add its base URL here:
+
+```env
+NEXT_PUBLIC_SEARXNG_URL=https://your-searxng-instance.example.com
+```
+
+4. Start the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+5. Open `http://localhost:3000`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Login
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+To use this app, sign in with your Puter account:
 
-## Learn More
+- Click the login button on the main page
+- Complete the Puter authentication flow
+- After login, your profile appears and chat/usage features become available
 
-To learn more about Next.js, take a look at the following resources:
+## Important Files
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `hooks/useDashboardApp.ts` — main app logic and chat workflow
+- `components/chat/ModelSelector.tsx` — AI model selector with search
+- `components/user/Profile.tsx` — profile and usage display
+- `utils/search/smart-search.ts` — smart search pipeline and web proxy
+- `lib/puter-models.ts` — AI model list and vision detection
+- `app/api/search/route.ts` — search proxy to SearXNG
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deployment Notes
 
-## Deploy on Vercel
+- Ensure environment variables for Puter and SearXNG are configured
+- If you use a search engine, set `NEXT_PUBLIC_SEARXNG_URL` to your SearXNG instance URL
+- Deploy on a platform that supports Next.js App Router
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Hashtags
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+#PuterAI #NextJS #AIChat #SmartSearch #RAG #TextToImage #TextToVideo #Dashboard #WebApp
