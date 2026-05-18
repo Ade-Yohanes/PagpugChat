@@ -13,9 +13,11 @@ export interface SmartSearchConfig {
    * Model puter.ai untuk semua LLM call di pipeline ini.
    * Contoh: "google/gemma-3-27b-it", "meta-llama/llama-3.1-8b-instruct",
    *         "mistralai/mistral-7b-instruct", "gpt-4o-mini"
-   * Default: "google/gemma-3-27b-it"
+   * Default: "gpt-4o-mini"
    */
   model?: string;
+  /** Jika false, smart search hanya melakukan fetch hasil web tanpa memanggil model */
+  useModel?: boolean;
   /** Jumlah hasil search yang dipakai untuk RAG (default: 5) */
   topK?: number;
   /** Bahasa jawaban LLM (default: "Indonesia") */
@@ -24,10 +26,18 @@ export interface SmartSearchConfig {
   signal?: AbortSignal;
 }
 
-const DEFAULT_CONFIG: Required<SmartSearchConfig> = {
-  model: "mixtral/mistral-8x22B-instruct", // gpt-4o-mini terlalu mahal untuk pipeline multi-step
+type ChatOptionsWithSignal = {
+  model?: string;
+  stream?: boolean;
+  signal?: AbortSignal;
+};
+
+const DEFAULT_CONFIG: SmartSearchConfig = {
+  model: "gpt-4o-mini", // gpt-4o-mini terlalu mahal untuk pipeline multi-step
+  useModel: true,
   topK: 5,
   language: "Indonesia",
+  signal: undefined,
 };
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -53,10 +63,24 @@ export interface SearchDecision {
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 
-function extractText(response: any, fallback = ""): string {
+function extractText(response: unknown, fallback = ""): string {
   if (typeof response === "string") return response;
-  if (typeof response?.message?.content === "string")
-    return response.message.content;
+  if (typeof response === "object" && response !== null) {
+    const responseObject = response as Record<string, unknown>;
+    if (
+      "message" in responseObject &&
+      typeof responseObject.message === "object" &&
+      responseObject.message !== null
+    ) {
+      const messageObject = responseObject.message as Record<string, unknown>;
+      if (
+        "content" in messageObject &&
+        typeof messageObject.content === "string"
+      ) {
+        return messageObject.content;
+      }
+    }
+  }
   return fallback;
 }
 
@@ -66,6 +90,11 @@ export async function rewriteQuery(
   userQuery: string,
   config: Required<SmartSearchConfig>
 ): Promise<string> {
+  if (!config.useModel || !config.model) {
+    console.log(`[SmartSearch] Rewrite skipped because model is disabled or unavailable`);
+    return userQuery;
+  }
+
   const prompt = `Kamu adalah query optimizer untuk mesin pencari web.
 
 Tugasmu: Ubah query pengguna menjadi query pencarian web yang lebih efektif.
@@ -87,7 +116,7 @@ Query yang dioptimalkan:`;
       model: config.model,
       stream: false,
       signal: config.signal,
-    });
+    } as ChatOptionsWithSignal);
     const raw = extractText(response, userQuery);
     const cleaned = raw.trim().replace(/^["']|["']$/g, "").split("\n")[0].trim();
     console.log(`[SmartSearch] Query rewritten: "${userQuery}" → "${cleaned}"`);
@@ -104,6 +133,11 @@ export async function decideIfSearchNeeded(
   userQuery: string,
   config: Required<SmartSearchConfig>
 ): Promise<SearchDecision> {
+  if (!config.useModel || !config.model) {
+    console.log(`[SmartSearch] Search decision skipped because model is disabled or unavailable`);
+    return { needsSearch: true, reason: "Search-only mode" };
+  }
+
   const prompt = `Kamu adalah router cerdas yang memutuskan apakah suatu pertanyaan perlu pencarian internet.
 
 PERLU SEARCH jika pertanyaan tentang:
@@ -134,7 +168,7 @@ JSON:`;
       model: config.model,
       stream: false,
       signal: config.signal,
-    });
+    } as ChatOptionsWithSignal);
     const text = extractText(response, "");
     const jsonMatch = text.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
@@ -183,15 +217,24 @@ async function fetchResults(
     clearTimeout(timeoutId);
     
     if (!response.ok) throw new Error(`SearXNG error: ${response.status}`);
-    const data = await response.json();
-    const raw: any[] = Array.isArray(data.results) ? data.results : [];
+    const data: unknown = await response.json();
+    const raw: unknown[] =
+      typeof data === "object" &&
+      data !== null &&
+      "results" in data &&
+      Array.isArray((data as Record<string, unknown>).results)
+        ? ((data as Record<string, unknown>).results as unknown[])
+        : [];
     return raw
       .slice(0, topK)
-      .map((r) => ({
-        title: String(r.title ?? ""),
-        url: String(r.url ?? ""),
-        content: String(r.content ?? r.snippet ?? ""),
-      }))
+      .map((r) => {
+        const item = typeof r === "object" && r !== null ? (r as Record<string, unknown>) : {};
+        return {
+          title: String(item.title ?? ""),
+          url: String(item.url ?? ""),
+          content: String(item.content ?? item.snippet ?? ""),
+        };
+      })
       .filter((r) => r.title || r.content);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
@@ -215,6 +258,13 @@ export async function synthesizeAnswer(
     return "Tidak ditemukan hasil pencarian yang relevan untuk menjawab pertanyaan ini.";
   }
 
+  if (!config.useModel || !config.model) {
+    console.log(`[SmartSearch] Synthesis skipped because model is disabled or unavailable`);
+    return safeResults
+      .map((r, i) => `**${i + 1}. ${r.title}**\n${r.content}\n🔗 ${r.url}`)
+      .join("\n\n");
+  }
+
   const context = safeResults
     .map(
       (r, i) =>
@@ -222,7 +272,7 @@ export async function synthesizeAnswer(
     )
     .join("\n\n---\n\n");
 
-  const prompt = `Kamu adalah asisten AI yang menjawab pertanyaan berdasarkan hasil pencarian web terkini.
+  const prompt = `Kamu adalah asisten AI yang Smart yang menjawab pertanyaan berdasarkan hasil pencarian web terkini.
 
 PERTANYAAN PENGGUNA:
 "${userQuery}"
@@ -248,7 +298,7 @@ JAWABAN:`;
       model: config.model,
       stream: false,
       signal: config.signal,
-    });
+    } as ChatOptionsWithSignal);
     const answer = extractText(response, "").trim();
     return answer || "Gagal menghasilkan jawaban dari hasil pencarian.";
   } catch (err) {
@@ -265,14 +315,19 @@ export async function smartSearch(
   userQuery: string,
   config: SmartSearchConfig = {}
 ): Promise<SmartSearchResult> {
-  const cfg = { ...DEFAULT_CONFIG, ...config };
-  console.log(`[SmartSearch] Start: "${userQuery}" | model: ${cfg.model}`);
+  const cfg = { ...DEFAULT_CONFIG, ...config } as Required<SmartSearchConfig>;
+  console.log(`[SmartSearch] Start: "${userQuery}" | model: ${cfg.model} | useModel: ${cfg.useModel}`);
 
-  // Step 1 & 2 paralel karena tidak saling depend
-  const [rewrittenQuery, decision] = await Promise.all([
-    rewriteQuery(userQuery, cfg),
-    decideIfSearchNeeded(userQuery, cfg),
-  ]);
+  let rewrittenQuery = userQuery;
+  let decision: SearchDecision = { needsSearch: true, reason: "Search-only mode" };
+
+  if (cfg.useModel && cfg.model) {
+    // Step 1 & 2 paralel karena tidak saling depend
+    [rewrittenQuery, decision] = await Promise.all([
+      rewriteQuery(userQuery, cfg),
+      decideIfSearchNeeded(userQuery, cfg),
+    ]);
+  }
 
   if (!decision.needsSearch) {
     console.log(`[SmartSearch] Skipped: ${decision.reason}`);

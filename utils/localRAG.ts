@@ -8,7 +8,17 @@ export interface DocumentChunk {
   embedding: number[];
 }
 
-let pipelineInstance: any = null;
+type ExtractorOptions = {
+  pooling?: "none" | "mean" | "cls";
+  normalize?: boolean;
+};
+
+type ExtractorFn = (
+  input: string,
+  options?: ExtractorOptions
+) => Promise<unknown>;
+
+let pipelineInstance: unknown = null;
 let currentDocumentChunks: DocumentChunk[] = [];
 let currentDocumentName: string = "";
 
@@ -40,8 +50,70 @@ function chunkText(text: string, chunkSize: number = 1000, overlap: number = 200
   return chunks;
 }
 
+function isIterable(value: unknown): value is Iterable<unknown> {
+  if (value == null || typeof value === "string") return false;
+  const iterable = value as { [Symbol.iterator]?: unknown };
+  return typeof iterable[Symbol.iterator] === "function";
+}
+
+function getEmbedding(output: unknown) {
+  if (output == null) {
+    throw new Error("Ekstraktor embedding menghasilkan output kosong");
+  }
+
+  if (Array.isArray(output)) {
+    if (output.length > 0 && Array.isArray(output[0])) {
+      return Array.from(output[0]) as number[];
+    }
+    return Array.from(output) as number[];
+  }
+
+  if (isIterable(output)) {
+    return Array.from(output as Iterable<number>) as number[];
+  }
+
+  if (typeof output === "object" && output !== null) {
+    const outputObject = output as Record<string, unknown>;
+
+    const dataCandidate =
+      outputObject.data ??
+      outputObject[0] ??
+      outputObject.embedding ??
+      outputObject.embeddings ??
+      outputObject.features ??
+      outputObject.feature;
+
+    if (dataCandidate != null) {
+      if (Array.isArray(dataCandidate)) {
+        return Array.from(dataCandidate) as number[];
+      }
+      if (isIterable(dataCandidate)) {
+        return Array.from(dataCandidate as Iterable<number>) as number[];
+      }
+      if (
+        typeof dataCandidate === "object" &&
+        dataCandidate !== null &&
+        "data" in dataCandidate
+      ) {
+        const candidateObject = dataCandidate as Record<string, unknown>;
+        if (candidateObject.data != null && isIterable(candidateObject.data)) {
+          return Array.from(candidateObject.data as Iterable<number>) as number[];
+        }
+      }
+    }
+
+    if (typeof outputObject.toArray === "function") {
+      return Array.from(outputObject.toArray() as Iterable<number>) as number[];
+    }
+  }
+
+  throw new Error(
+    `Output extractor tidak valid: ${JSON.stringify(output).slice(0, 200)}`
+  );
+}
+
 // Inisialisasi Model AI di Browser
-export const initRAG = async () => {
+export const initRAG = async (): Promise<ExtractorFn> => {
   if (!pipelineInstance) {
     // Dynamic import untuk menghindari SSR error di Next.js
     const { pipeline, env } = await import('@xenova/transformers');
@@ -51,7 +123,7 @@ export const initRAG = async () => {
     pipelineInstance = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
     console.log("[LocalRAG] Model berhasil dimuat ke memori browser!");
   }
-  return pipelineInstance;
+  return pipelineInstance as ExtractorFn;
 }
 
 // Fungsi untuk membaca dan mengubah dokumen menjadi Vektor
@@ -72,9 +144,15 @@ export const processDocumentRAG = async (
 
   onProgress?.("Menyiapkan model AI Lokal (Bisa memakan waktu saat pertama kali)...");
   const extractor = await initRAG();
+  if (!extractor) {
+    throw new Error("Ekstraktor embedding tidak tersedia.");
+  }
 
   onProgress?.("Memotong dokumen dan menganalisis makna...");
   const textChunks = chunkText(text);
+  if (textChunks.length === 0) {
+    throw new Error("Dokumen kosong atau tidak dapat dibaca.");
+  }
   currentDocumentChunks = [];
 
   let processed = 0;
@@ -85,7 +163,7 @@ export const processDocumentRAG = async (
 
     // Ubah teks menjadi deretan angka (vektor 384 dimensi)
     const output = await extractor(chunk, { pooling: 'mean', normalize: true });
-    const embedding = Array.from(output.data) as number[];
+    const embedding = getEmbedding(output);
     
     currentDocumentChunks.push({ text: chunk, embedding });
     processed++;
@@ -111,10 +189,13 @@ export const searchRelevantChunks = async (
   if (!Array.isArray(currentDocumentChunks) || currentDocumentChunks.length === 0) return "";
 
   const extractor = await initRAG();
+  if (!extractor) {
+    throw new Error("Ekstraktor embedding tidak tersedia.");
+  }
   
   // Ubah pertanyaan pengguna menjadi vektor juga
   const output = await extractor(query, { pooling: 'mean', normalize: true });
-  const queryEmbedding = Array.from(output.data) as number[];
+  const queryEmbedding = getEmbedding(output);
 
   // Hitung skor kemiripan (0 sampai 1)
   const scoredChunks = currentDocumentChunks.map(chunk => ({

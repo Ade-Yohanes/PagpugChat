@@ -264,11 +264,12 @@ export function useDashboardApp() {
       });
 
       const searchResult = await performSmartSearch(textInput, {
-        // Pakai model yang sama dengan chat, fallback ke gemma
+        // Pakai model hanya jika user memilih model secara eksplisit.
         model:
           selectedModel && selectedModel.trim() !== ""
             ? selectedModel
-            : "google/gemma-3-27b-it",
+            : undefined,
+        useModel: Boolean(selectedModel && selectedModel.trim() !== ""),
         topK: 5,
         language: "Indonesia",
         signal,
@@ -303,6 +304,9 @@ Berikan jawaban yang natural dan langsung menjawab pertanyaan pengguna. Kamu bol
     if (currentAttachment) {
       if (currentAttachment.type === "text") {
         setIsLoading(true);
+        if (typeof currentAttachment.content !== "string" || currentAttachment.content.length === 0) {
+          throw new Error("Konten dokumen tidak valid untuk RAG lokal.");
+        }
         try {
           setMessages((prev) => {
             const safePrev = Array.isArray(prev) ? prev : [];
@@ -334,7 +338,11 @@ Berikan jawaban yang natural dan langsung menjawab pertanyaan pengguna. Kamu bol
             const safePrev = Array.isArray(prev) ? prev : [];
             return safePrev.slice(0, -1);
           });
-          finalContent = `${textInput}\n\n[Mode Fallback: Gagal analisis RAG lokal]\n\nBerikut sebagian isi file "${currentAttachment.fileName}":\n\n---\n${currentAttachment.content.substring(0, 3000)}\n---`;
+          const safeTextContent =
+              typeof currentAttachment.content === "string"
+                ? currentAttachment.content
+                : String(currentAttachment.content ?? "[Konten dokumen tidak tersedia]");
+          finalContent = `${textInput}\n\n[Mode Fallback: Gagal analisis RAG lokal]\n\nBerikut sebagian isi file "${currentAttachment.fileName}":\n\n---\n${safeTextContent.substring(0, 3000)}\n---`;
           displayContent = `📄 [File Terlampir: ${currentAttachment.fileName}]\n\n${textInput}`;
         }
       } else if (currentAttachment.type === "file") {
