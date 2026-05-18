@@ -30,7 +30,7 @@ Pagpug AI Dashboard is a custom AI workspace built on top of the Puter SDK and l
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/username/repo-name.git
+git clone https://github.com/Ade-Yohanes/PagpugChat.git
 cd repo-name
 ```
 
