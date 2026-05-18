@@ -33,12 +33,53 @@ type ChatOptionsWithSignal = {
 };
 
 const DEFAULT_CONFIG: SmartSearchConfig = {
-  model: "gpt-4o-mini", // gpt-4o-mini terlalu mahal untuk pipeline multi-step
+  model: "ministral-3-3B-mistral", // gpt-4o-mini terlalu mahal untuk pipeline multi-step
   useModel: true,
   topK: 5,
   language: "Indonesia",
   signal: undefined,
 };
+
+// Maximum time (ms) to wait for a single LLM call before falling back to search-only mode
+const LLM_TIMEOUT_MS = 2500;
+
+async function chatWithTimeout(
+  prompt: string,
+  options: ChatOptionsWithSignal,
+  timeoutMs: number = LLM_TIMEOUT_MS
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  // If caller provided a signal, wire it to abort our controller too
+  if (options.signal) {
+    const parent = options.signal;
+    if (parent.aborted) {
+      controller.abort();
+    } else {
+      const onAbort = () => controller.abort();
+      parent.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  try {
+    const merged: ChatOptionsWithSignal = { ...options, signal: controller.signal };
+    const started = Date.now();
+    const res = await puter.ai.chat(prompt, merged as ChatOptionsWithSignal);
+    const duration = Date.now() - started;
+    console.log(`[SmartSearch][LLM] call duration: ${duration}ms`);
+    return res;
+  } catch (err) {
+    if (controller.signal.aborted) {
+      console.warn(`[SmartSearch][LLM] call aborted after ${timeoutMs}ms`);
+    } else {
+      console.error(`[SmartSearch][LLM] call error:`, err);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -95,6 +136,12 @@ export async function rewriteQuery(
     return userQuery;
   }
 
+  // Skip rewriting for direct time/day queries — LLM rewrite adds unwanted year/date
+  if (/\b(hari ini|hari apa|sekarang|tanggal|jam berapa|what day|what time|current date|today)\b/i.test(userQuery)) {
+    console.log(`[SmartSearch] Rewrite skipped for time/day query: "${userQuery}"`);
+    return userQuery;
+  }
+
   const prompt = `Kamu adalah query optimizer untuk mesin pencari web.
 
 Tugasmu: Ubah query pengguna menjadi query pencarian web yang lebih efektif.
@@ -112,11 +159,14 @@ Query pengguna: "${userQuery}"
 Query yang dioptimalkan:`;
 
   try {
-    const response = await puter.ai.chat(prompt, {
+    const started = Date.now();
+    const response = await chatWithTimeout(prompt, {
       model: config.model,
       stream: false,
       signal: config.signal,
-    } as ChatOptionsWithSignal);
+    });
+    const took = Date.now() - started;
+    console.log(`[SmartSearch] rewriteQuery LLM took ${took}ms`);
     const raw = extractText(response, userQuery);
     const cleaned = raw.trim().replace(/^["']|["']$/g, "").split("\n")[0].trim();
     console.log(`[SmartSearch] Query rewritten: "${userQuery}" → "${cleaned}"`);
@@ -164,11 +214,14 @@ Jawab HANYA dalam format JSON berikut, tanpa teks lain:
 JSON:`;
 
   try {
-    const response = await puter.ai.chat(prompt, {
+    const started = Date.now();
+    const response = await chatWithTimeout(prompt, {
       model: config.model,
       stream: false,
       signal: config.signal,
-    } as ChatOptionsWithSignal);
+    });
+    const took = Date.now() - started;
+    console.log(`[SmartSearch] decideIfSearchNeeded LLM took ${took}ms`);
     const text = extractText(response, "");
     const jsonMatch = text.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
@@ -294,11 +347,14 @@ INSTRUKSI:
 JAWABAN:`;
 
   try {
-    const response = await puter.ai.chat(prompt, {
+    const started = Date.now();
+    const response = await chatWithTimeout(prompt, {
       model: config.model,
       stream: false,
       signal: config.signal,
-    } as ChatOptionsWithSignal);
+    });
+    const took = Date.now() - started;
+    console.log(`[SmartSearch] synthesizeAnswer LLM took ${took}ms`);
     const answer = extractText(response, "").trim();
     return answer || "Gagal menghasilkan jawaban dari hasil pencarian.";
   } catch (err) {
