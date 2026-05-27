@@ -1,5 +1,11 @@
 # Pagpug AI Dashboard
+<br>
+<p align="center">
+<img src="public/PagpugAiDemo.gif" alt="Alt text" width="800" >
+</p>
 
+
+<br>
 A Next.js application that integrates Puter.ai features for chat, smart search, document analysis, media generation, and user profile management.
 
 ## About
